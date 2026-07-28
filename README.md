@@ -1,15 +1,17 @@
-# Contribution 2: [Issue Title]
+# Contribution 2: debuginfo: Add integration tests for debuginfo.Store.Exists and debuginfo.Store.Upload using the debuginfo.Client
 
-**Contribution Number:** [1 / 2 / 3]  
-**Student:** [Your Name]  
-**Issue:** [GitHub issue link]  
-**Status:** [Phase I / Phase II / Phase III / Phase IV] [In Progress / Complete]
+**Contribution Number:** 2  
+**Student:** George Alvarado-Salinas
+**Issue:** https://github.com/parca-dev/parca/issues/1160
+**Status:** Phase I Complete!
 
 ---
 
 ## Why I Chose This Issue
 
 [1-2 paragraphs explaining why this issue interests you, how it matches your skills/learning goals, what you hope to learn]
+
+I chose this issue for a few reasons. From a personal perspective, this issue has to do with writing tests, which is somewhat similar to what I'm doing in AI201 (which is where my interest comes from). This issue is also very active and has not had any comments on it (which has been hard to find). The problem is pretty understandable, and I think a big part of that comes from the description specifically stating what it wants from the contributor (me).
 
 ---
 

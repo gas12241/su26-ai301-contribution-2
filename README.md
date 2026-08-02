@@ -3,7 +3,7 @@
 **Contribution Number:** 2  
 **Student:** George Alvarado-Salinas
 **Issue:** https://github.com/parca-dev/parca/issues/1160
-**Status:** Phase I Complete!
+**Status:** Phase II Complete!
 
 ---
 
@@ -19,39 +19,58 @@ I chose this issue for a few reasons. From a personal perspective, this issue ha
 
 ### Problem Description
 
-[In your own words, what's broken or missing?]
+From my understanding, there is a test that tests debuginfo.Store.Exists and debuginfo.Store.Upload, but it doesn't do so in a way that is good for testing. Both are testing in a giant test, where they are not tested extensively either. Considering we would want to test both separately, inside the test file would have to be a "test helper" that deals with the setup for the tests, as well as the integration tests for both debuginfo.Store.Exists and debuginfo.Store.Upload. this isn't something that is  broken, per se, but it is missing.
 
 ### Expected Behavior
 
-[What should happen?]
+There should be a focused integration test (or tests) that spin up a real `debuginfo.Store` gRPC server and drive it through the real `debuginfo.Client` (`GrpcUploadClient` in `pkg/debuginfo/client.go`), verifying the existence-check and upload RPCs work correctly over an actual gRPC connection — not just at the Go-struct level with fakes standing in for the network boundary.
 
 ### Current Behavior
 
-[What actually happens?]
+There's already a real-gRPC test in `pkg/debuginfo/store_test.go` (`TestStore`, lines 74–260) that does dial a real client against a real server — so this isn't a from-scratch gap. But it has two shortcomings relative to what the issue asks for:
+
+1. It's one large, monolithic test covering the entire upload lifecycle (initiate → upload → mark finished → existence/quality checks → debuginfod fallback) rather than focused tests specifically for `Exists`-style checks and `Upload`.
+2. It opens a real TCP socket (`net.Listen("tcp", "127.0.0.1:0")`, line 98) instead of using an in-process `bufconn` listener, which is unnecessary overhead/flakiness risk for a unit-level integration test.
+
+Also worth flagging: there's no method literally named `Store.Exists` in `pkg/debuginfo/store.go` — existence checks are exposed through `ShouldInitiateUpload`'s reason codes (`ReasonDebuginfoAlreadyExists`, `ReasonDebuginfoInDebuginfod`, etc.). The issue title's "Store.Exists" likely refers to that existence-check behavior conceptually, not a literal method — worth clarifying with whoever filed it.
 
 ### Affected Components
 
-[Which parts of the codebase are involved?]
+- `pkg/debuginfo/store.go` — `Store.ShouldInitiateUpload`, `Store.Upload`, `Store.MarkUploadFinished` (the RPCs under test)
+- `pkg/debuginfo/client.go` — `GrpcUploadClient`, `NewGrpcUploadClient`, `GrpcDebuginfoUploadServiceClient` (the real client being exercised)
+- `pkg/debuginfo/store_test.go` — existing `TestStore`, to be refactored/extended
+- `gen/proto/go/parca/debuginfo/v1alpha1` — generated `DebuginfoServiceClient`/`DebuginfoServiceServer` used by both sides
 
 ---
 
 ## Reproduction Process
 
+*(Not applicable in the traditional sense — this is a test-coverage gap, not a bug, so there's no failing behavior to reproduce. Reframed below as "how I set up the environment" and "how I confirmed the gap.")*
+
 ### Environment Setup
 
-[Notes on setting up your local development environment - challenges you faced, how you solved them]
+Followed `CONTRIBUTING.md`'s Prerequisites/Getting Started on macOS (arm64, macOS 26.3.1). Hit and fixed several environment-specific issues along the way (documented in full in a personal setup log, happy to share/upstream separately):
+
+- Go/Node PATH not picked up until terminal restart after install
+- `pnpm` required for `make build`'s UI step but not listed in CONTRIBUTING.md
+- `env-local-test.sh` (part of `make dev/setup`) hardcodes a Linux minikube binary regardless of host OS — worked around via `brew install minikube`
+- minikube's default `qemu2` driver on macOS arm64 has broken in-VM DNS resolution — switched to `--driver=docker`
+- `Dockerfile.dev`'s UI build stages pinned a stale `node:16.20.2-alpine` (inconsistent with `.nvmrc`'s 22.22.2), and were missing `ui/pnpm-workspace.yaml` in the `COPY` list — both fixed locally
+- `deploy/Makefile`'s `AGENT_VERSION` resolution used `grep -oP`, a GNU-only flag unsupported by macOS's BSD grep — fixed with `sed -E`
+
+After these fixes, `make dev/setup`, `make dev/up`, and `make go/test` all complete successfully (`go/test`: 141 passed, 0 failed).
 
 ### Steps to Reproduce
 
-1. [Step 1]
-2. [Step 2]
-3. [Observed result]
+1. Ran `go test -tags assert -v ./pkg/debuginfo/...` — `TestStore` passes today, confirming the *existing* real-client/real-server test path already works.
+2. Read `pkg/debuginfo/store_test.go` end-to-end and confirmed it exercises the client/server boundary correctly, but as one combined lifecycle test rather than scoped `Exists`/`Upload` integration tests.
+3. Searched the repo for `bufconn` usage (`grep -rn "bufconn"`) — zero matches, confirming no existing precedent for the lighter-weight in-process gRPC test pattern this issue implicitly wants.
 
 ### Reproduction Evidence
 
-- **Commit showing reproduction:** [Link to commit in your fork]
-- **Screenshots/logs:** [If applicable]
-- **My findings:** [What you discovered during reproduction]
+- **Commit showing reproduction:** N/A — no code change was needed to observe the gap; it's evident directly from reading `store_test.go`.
+- **Screenshots/logs:** `go test -tags assert -v ./pkg/debuginfo/...` output showing `TestStore` passing (available on request).
+- **My findings:** The building blocks for the requested integration tests already exist in `TestStore` (real `grpc.NewServer()` + real `debuginfopb.NewDebuginfoServiceClient` + `NewGrpcUploadClient`) — this is additive/refactoring work, not net-new infrastructure.
 
 ---
 
@@ -59,30 +78,33 @@ I chose this issue for a few reasons. From a personal perspective, this issue ha
 
 ### Analysis
 
-[Your analysis of the root cause - what's causing the issue?]
+The "root cause" here is scope, not breakage: `TestStore` already proves the client/server integration path works, but it's not structured as the kind of focused, reusable integration tests the issue asks for, and it uses real sockets instead of `bufconn`, which is slightly heavier/flakier than necessary for CI.
 
 ### Proposed Solution
 
-[High-level description of your fix approach]
+Extract a shared test helper that builds a real `*Store` + real in-process `bufconn`-backed gRPC server/client pair, then write focused tests: one exercising existence-check behavior (`ShouldInitiateUpload`'s reason codes) through the client, and one exercising `Upload` (chunked upload → `MarkUploadFinished` → verify bytes landed in the bucket) through the client — independent of the big combined lifecycle test.
 
 ### Implementation Plan
 
 Using UMPIRE framework (adapted):
 
-**Understand:** [Restate the problem]
+**Understand:** Add integration tests that drive `debuginfo.Store`'s existence-check and upload behavior through the real `debuginfo.Client`, rather than only unit-testing internals with fakes.
 
-**Match:** [What similar patterns/solutions exist in the codebase?]
+**Match:** `pkg/debuginfo/store_test.go` lines 74–260 (`TestStore`) already shows the exact pattern to reuse: `objstore.NewInMemBucket()` + `NewObjectStoreMetadata` + `NewStore(...)`, a real `grpc.NewServer()` registered with `debuginfopb.RegisterDebuginfoServiceServer`, dialed via `grpc.NewClient(...)`, wrapped in `debuginfopb.NewDebuginfoServiceClient` and `NewGrpcUploadClient`. `google.golang.org/grpc` is already a direct dependency (`go.mod`), so `google.golang.org/grpc/test/bufconn` needs no new dependency.
 
-**Plan:** [Step-by-step implementation plan]
-1. [Modify file X to do Y]
-2. [Add function Z]
-3. [Update tests]
+**Plan:**
+1. Add a `newTestStoreAndClient(t *testing.T) (*Store, debuginfopb.DebuginfoServiceClient, *GrpcUploadClient)` helper in `pkg/debuginfo/store_test.go` (or a new `integration_test.go`) using `bufconn.Listen(...)` instead of `net.Listen("tcp", ...)`.
+2. Add `TestStoreExistsIntegration` — covers `ShouldInitiateUpload` reason codes (`ReasonFirstTimeSeen`, `ReasonDebuginfoAlreadyExists`, `ReasonDebuginfoInDebuginfod`, etc.) driven through the real client.
+3. Add `TestStoreUploadIntegration` — covers the chunked `Upload` → `MarkUploadFinished` path through `GrpcUploadClient`, asserting the resulting bytes in the bucket, independent of the existence-check assertions.
+4. Leave the existing `TestStore` in place (or slim it down) to avoid regressing its existing coverage while the new focused tests land.
+5. Update tests to use the shared helper; run `make go/test` to confirm no regressions.
 
 **Implement:** [Link to your branch/commits as you work]
 
-**Review:** [Self-review checklist - does it follow the project's contribution guidelines?]
+**Review:** Confirm changes follow `CONTRIBUTING.md` (commit message format: subject ≤70 chars/body wrapped at 80 with `Fixes #1160`; run `make go/lint`; add/update tests per "Making a PR" section).
 
-**Evaluate:** [How will you verify it works?]
+**Evaluate:** `make go/test` passes locally (141/141 today; new tests should raise that count), and CI runs green on the PR.
+
 
 ---
 

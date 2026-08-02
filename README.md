@@ -68,7 +68,7 @@ After these fixes, `make dev/setup`, `make dev/up`, and `make go/test` all compl
 
 ### Reproduction Evidence
 
-- **Commit showing reproduction:** N/A — no code change was needed to observe the gap; it's evident directly from reading `store_test.go`.
+- **Commit showing reproduction:** N/A — no code change was needed to observe the gap; it's evident directly from reading `store_test.go`. That being said, here is a link to my branch that I made for this issue: https://github.com/gas12241/parca/tree/fix-debuginfo-store-1160
 - **Screenshots/logs:** `go test -tags assert -v ./pkg/debuginfo/...` output showing `TestStore` passing (available on request).
 - **My findings:** The building blocks for the requested integration tests already exist in `TestStore` (real `grpc.NewServer()` + real `debuginfopb.NewDebuginfoServiceClient` + `NewGrpcUploadClient`) — this is additive/refactoring work, not net-new infrastructure.
 

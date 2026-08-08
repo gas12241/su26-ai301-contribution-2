@@ -149,6 +149,21 @@ One clarification worth carrying forward: there's no method literally named `Sto
   - [`dba0cb794`](https://github.com/gas12241/parca/commit/dba0cb794) — build: fix macOS-only local dev setup bugs (separate PR, referenced for context)
 - **Approach decisions:** Reused the existing `TestStore` pattern (real `*Store` + real `grpc.Server` + real client) rather than inventing a new one, but switched to `bufconn` instead of a real TCP listener since it's lighter-weight and avoids port-allocation flakiness in CI. Kept the new tests narrowly scoped to existence-checking and uploading (per the issue) rather than duplicating all of `TestStore`'s broader lifecycle coverage. Split the incidental macOS environment fixes into a separate branch/PR since they're unrelated to this issue's actual ask.
 
+### Challenges Faced
+
+**Local dev environment setup was the biggest time sink, and uncovered real repo bugs.** Following `CONTRIBUTING.md` on macOS (arm64) surfaced a chain of issues that had nothing to do with the actual code change: Go/Node PATH not resolving until a terminal restart, `pnpm` being required but undocumented, `env-local-test.sh` downloading a Linux minikube binary on a Mac, the `qemu2` minikube driver having broken in-VM DNS, `Dockerfile.dev` pinned to a Node 16 base image too old to run modern `pnpm` (crashed with `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`), a missing `pnpm-workspace.yaml` in that same Dockerfile's `COPY` list, and a `grep -oP` in `deploy/Makefile` that macOS's BSD `grep` doesn't support. Each one only revealed itself after fixing the previous one, so it was a genuinely iterative process — fix, rebuild, read the next error, repeat — rather than something diagnosable all at once.
+
+**Diagnosing root cause vs. symptom took real digging in a couple of spots.** The pnpm failure looked at first like a missing-pnpm problem, and pinning the exact version from `ui/package.json`'s `packageManager` field didn't fix it — it turned out the actual cause was the Node 16 base image itself being incompatible with any modern pnpm build, not the specific version. Similarly, `parca-agent`'s crash loop looked fixable at first, but turned out to be a structural limitation (nested containerization on macOS blocking eBPF/kernel-symbol access) rather than a config bug — recognizing that distinction mattered for deciding when to stop chasing a fix versus accept a known limitation.
+
+**Mapping the issue's language to actual code took care.** The issue referenced `debuginfo.Store.Exists`, but no method by that literal name exists — it maps conceptually to `ShouldInitiateUpload`'s reason codes. Catching that early avoided writing a test around a method that doesn't exist, and was worth flagging explicitly for whoever reviews the PR.
+
+**What helped:**
+- Reading actual error output closely rather than guessing (e.g. `kubectl get events`, Tilt's build log) — every fix in this list came from a specific, literal error message, not speculation.
+- Direct shell access (`docker`, `minikube`, `kubectl`, `go test`, `git`) to reproduce and verify each fix in isolation before moving to the next layer of the problem.
+- Reading the existing test file (`store_test.go`) end-to-end before writing anything new — it already contained most of the pattern needed (real `*Store` + real `grpc.Server` + real client), which meant the actual implementation was additive rather than novel.
+- Running the full test suite before and after the change (141 → 143 passed, 0 failed) to get a concrete, verifiable answer to "did this break anything" instead of relying on judgment alone.
+
+
 ---
 
 

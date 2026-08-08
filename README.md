@@ -3,7 +3,7 @@
 **Contribution Number:** 2  
 **Student:** George Alvarado-Salinas
 **Issue:** https://github.com/parca-dev/parca/issues/1160
-**Status:** Phase II Complete!
+**Status:** Phase III Complete!
 
 ---
 
@@ -99,7 +99,7 @@ Using UMPIRE framework (adapted):
 4. Leave the existing `TestStore` in place (or slim it down) to avoid regressing its existing coverage while the new focused tests land.
 5. Update tests to use the shared helper; run `make go/test` to confirm no regressions.
 
-**Implement:** [Link to your branch/commits as you work]
+**Implement:** https://github.com/gas12241/parca/tree/fix-debuginfo-store-1160
 
 **Review:** Confirm changes follow `CONTRIBUTING.md` (commit message format: subject ≤70 chars/body wrapped at 80 with `Fixes #1160`; run `make go/lint`; add/update tests per "Making a PR" section).
 
@@ -112,38 +112,45 @@ Using UMPIRE framework (adapted):
 
 ### Unit Tests
 
-- [ ] Test case 1: [Description]
-- [ ] Test case 2: [Description]
-- [ ] Test case 3: [Description]
+- [x] Test case 1: `TestStore` (pre-existing, `pkg/debuginfo/store_test.go`) — full upload lifecycle with fakes for the debuginfod dependency; left unchanged, still passing
+- [x] Test case 2: `go vet ./pkg/debuginfo/...` — clean, no issues
+- [x] Test case 3: `gofumpt -l pkg/debuginfo/store_test.go` — no formatting issues
 
 ### Integration Tests
 
-- [ ] Integration scenario 1
-- [ ] Integration scenario 2
+- [x] Integration scenario 1: `TestStoreExistsIntegration` — drives `ShouldInitiateUpload`'s existence-check reason codes (`ReasonFirstTimeSeen`, `ReasonDebuginfoInDebuginfod`, `ReasonDebuginfoAlreadyExists`) through a real `debuginfo.Client` over an in-process `bufconn` listener
+- [x] Integration scenario 2: `TestStoreUploadIntegration` — drives the chunked `Upload` RPC → `MarkUploadFinished` through the real client, asserting the uploaded bytes land correctly in the backing bucket
 
 ### Manual Testing
 
-[What you tested manually and results]
+Ran the full local dev stack end-to-end via `make dev/up` (Tilt + minikube) and confirmed the `parca` server came up healthy and reachable at `localhost:7070` before and after these changes. Ran `make go/test` before implementing (141 passed / 0 failed, baseline) and after (143 passed / 0 failed — exactly the two new tests, zero regressions). Ran `make go/lint` (`golangci-lint run`) — 0 issues.
 
 ---
 
 ## Implementation Notes
 
-### Week [X] Progress
+### Week 1 Progress
 
-[What you built this week, challenges faced, decisions made]
+Built the local dev environment from scratch following `CONTRIBUTING.md`, which surfaced several macOS-specific bugs unrelated to this issue (stale Node version and missing workspace file in `Dockerfile.dev`, a non-portable `grep -oP` in `deploy/Makefile`, a broken minikube driver default) — all fixed separately and moved to their own branch/PR (`fix-macos-dev-setup`) so they don't get bundled into this issue's scope.
+
+With the environment working, implemented the actual ask for issue #1160: added a `newTestStoreAndClient` test helper (using `bufconn` for an in-process gRPC connection, avoiding a real TCP socket) and two focused integration tests, `TestStoreExistsIntegration` and `TestStoreUploadIntegration`, built on the existing real-client pattern already present in `TestStore`. Decided to leave `TestStore` untouched rather than refactor it to share the new helper, to avoid any risk of regressing its existing coverage while this lands.
+
+One clarification worth carrying forward: there's no method literally named `Store.Exists` in the codebase — the issue's "Exists" refers to existence-check behavior exposed through `ShouldInitiateUpload`'s reason codes, which is what `TestStoreExistsIntegration` actually exercises.
 
 ### Week [Y] Progress
 
-[Continue documenting as you work]
+[Not yet applicable — this issue's implementation was completed within Week 1.]
 
 ### Code Changes
 
-- **Files modified:** [List]
-- **Key commits:** [Links to important commits]
-- **Approach decisions:** [Why you chose certain approaches]
+- **Files modified:** `pkg/debuginfo/store_test.go` (this branch, `fix-debuginfo-store-1160`); `Dockerfile.dev` and `deploy/Makefile` (separate branch, `fix-macos-dev-setup`, not part of this PR)
+- **Key commits:**
+  - [`3784a58cc`](https://github.com/gas12241/parca/commit/3784a58cc) — debuginfo: add Store integration tests via real client
+  - [`dba0cb794`](https://github.com/gas12241/parca/commit/dba0cb794) — build: fix macOS-only local dev setup bugs (separate PR, referenced for context)
+- **Approach decisions:** Reused the existing `TestStore` pattern (real `*Store` + real `grpc.Server` + real client) rather than inventing a new one, but switched to `bufconn` instead of a real TCP listener since it's lighter-weight and avoids port-allocation flakiness in CI. Kept the new tests narrowly scoped to existence-checking and uploading (per the issue) rather than duplicating all of `TestStore`'s broader lifecycle coverage. Split the incidental macOS environment fixes into a separate branch/PR since they're unrelated to this issue's actual ask.
 
 ---
+
 
 ## Pull Request
 
